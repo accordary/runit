@@ -38,7 +38,8 @@ class TestLoader(unittest.TestCase):
             os.unlink(path)
 
     def test_invalid_schema_reports_validate_stage(self):
-        spec = json.load(open(os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "edge_diag", "model.json")))
+        with open(os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "edge_diag", "model.json")) as spec_fh:
+            spec = json.load(spec_fh)
         spec["weights"]["healthy"] = [0.0]
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
             json.dump(spec, fh)
