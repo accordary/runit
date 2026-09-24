@@ -29,3 +29,9 @@ chk "search scoped to service" "$("$BIN" -r "$R" search accepted sshd | grep -c 
 rc=0; "$BIN" -r /nonexistent list >/dev/null 2>&1 || rc=$?; chk "missing root exits 2" "$rc" "2"
 rc=0; "$BIN" -r "$R" bogus >/dev/null 2>&1 || rc=$?; chk "unknown command exits 1" "$rc" "1"
 [ $fail -eq 0 ] && echo "ALL TESTS PASSED" || { echo "TESTS FAILED"; exit 1; }
+
+# regression: unknown service must propagate exit 1 (not swallowed by for-substitution)
+for c in "clear nosuch" "tail nosuch" "retain 1 nosuch" "search x nosuch"; do
+  out=$("$TOOL" -r "$ROOT" $c 2>&1); rc=$?
+  check "$c exits 1 on unknown service" "1" "$rc"
+done

@@ -51,7 +51,7 @@ case "$cmd" in
     need_root
     pat=$1; [ -n "$pat" ] || { echo "runit-logs: search needs a pattern" >&2; exit 1; }
     rc=1
-    for d in $(targets "$2"); do
+    tgts=$(targets "$2") || exit 1; for d in $tgts; do
       for f in "$d"/current "$d"/@*; do
         [ -f "$f" ] || continue
         out=$(grep -En "$pat" "$f") || continue
@@ -63,12 +63,12 @@ case "$cmd" in
   retain)
     need_root
     days=$1; [ -n "$days" ] || { echo "runit-logs: retain needs DAYS" >&2; exit 1; }
-    for d in $(targets "$2"); do
+    tgts=$(targets "$2") || exit 1; for d in $tgts; do
       find "$d" -type f -name '@*' -mtime +"$days" -print -delete
     done ;;
   clear)
     need_root
-    for d in $(targets "$1"); do
+    tgts=$(targets "$1") || exit 1; for d in $tgts; do
       [ -f "$d/current" ] && : > "$d/current"
       find "$d" -type f -name '@*' -delete
       echo "cleared $(basename "$d")"
