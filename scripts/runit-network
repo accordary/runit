@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""runit-network - manage network interfaces, addresses, routes, and DNS.
+
+Interfaces are enumerated from a network root (default /sys/class/net), one entry
+per interface, reading operstate, address and mtu attributes. Addresses and routes
+are read and modified through iproute2 (`ip`), which may be overridden with
+--ip-command for testing or for a non-standard install path. DNS resolvers are
+managed in a resolv.conf style file (default /etc/resolv.conf) which is rewritten
+atomically.
+
+Every subcommand supports --json for machine readable output. Mutating commands
+support --dry-run, which prints the command or file content that would be applied
+and changes nothing. Exit status is 0 on success, 1 on a usage or runtime error
+(unknown interface, failing ip invocation, unreadable resolv.conf).
+"""
+import argparse
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+DEFAULT_NET_ROOT = "/sys/class/net"
+DEFAULT_RESOLV_CONF = "/etc/resolv.conf"
+DEFAULT_IP_COMMAND = "ip"
+
+
+def read_attr(root, name, attr):
+    try:
+        with open(os.path.join(root, name, attr)) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def list_interfaces(root):
+    try:
+        names = sorted(os.listdir(root))
+    except OSError as exc:
+        raise SystemExit("runit-network: %s" % exc)
+    interfaces = []
+    for name in names:
+        if not os.path.isdir(os.path.join(root, name)):
+            continue
+        mtu = read_attr(root, name, "mtu")
+        interfaces.append({
+            "name": name,
+            "operstate": read_attr(root, name, "operstate") or "unknown",
+            "address": read_attr(root, name, "address"),
+            "mtu": int(mtu) if mtu.isdigit() else 0,
+        })
+    return interfaces
+
+
+def run_ip(ip_command, args, dry_run):
+    argv = shlex.split(ip_command) + args
+    if dry_run:
+        print(" ".join(shlex.quote(a) for a in argv))
+        return ""
+    try:
+        proc = subprocess.run(argv, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, universal_newlines=True)
+    except OSError as exc:
+        raise SystemExit("runit-network: %s: %s" % (ip_command, exc))
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(1)
+    return proc.stdout
+
+
+def parse_addresses(output):
+    addresses = []
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) < 4:
+            continue
+        addresses.append({
+            "interface": fields[1],
+            "family": fields[2],
+            "address": fields[3],
+        })
+    return addresses
+
+
+def parse_routes(output):
+    routes = []
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        route = {"destination": fields[0], "via": "", "device": ""}
+        for i, field in enumerate(fields):
+            if field == "via" and i + 1 < len(fields):
+                route["via"] = fields[i + 1]
+            elif field == "dev" and i + 1 < len(fields):
+                route["device"] = fields[i + 1]
+        routes.append(route)
+    return routes
+
+
+def read_resolvers(path):
+    resolvers = []
+    try:
+        with open(path) as fh:
+            for line in fh:
+                fields = line.split()
+                if len(fields) >= 2 and fields[0] == "nameserver":
+                    resolvers.append(fields[1])
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise SystemExit("runit-network: %s" % exc)
+    return resolvers
+
+
+def write_resolvers(path, resolvers, dry_run):
+    content = "".join("nameserver %s\n" % r for r in resolvers)
+    if dry_run:
+        sys.stdout.write(content)
+        return
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        fh.write(content)
+    os.replace(tmp, path)
+
+
+def emit(as_json, rows, columns):
+    if as_json:
+        print(json.dumps(rows, indent=1, sort_keys=True))
+        return
+    for row in rows:
+        print(" ".join(str(row[c]) for c in columns))
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="runit-network",
+                                     description="manage interfaces, addresses, routes and DNS")
+    parser.add_argument("--net-root", default=DEFAULT_NET_ROOT)
+    parser.add_argument("--resolv-conf", default=DEFAULT_RESOLV_CONF)
+    parser.add_argument("--ip-command", default=DEFAULT_IP_COMMAND)
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    sub = parser.add_subparsers(dest="command")
+
+    p = sub.add_parser("interfaces", help="list interfaces")
+    p.add_argument("name", nargs="?")
+
+    p = sub.add_parser("up", help="bring an interface up")
+    p.add_argument("name")
+    p = sub.add_parser("down", help="take an interface down")
+    p.add_argument("name")
+
+    p = sub.add_parser("addresses", help="list addresses")
+    p.add_argument("name", nargs="?")
+    p = sub.add_parser("address-add", help="add an address to an interface")
+    p.add_argument("name")
+    p.add_argument("address")
+    p = sub.add_parser("address-del", help="remove an address from an interface")
+    p.add_argument("name")
+    p.add_argument("address")
+
+    sub.add_parser("routes", help="list routes")
+    p = sub.add_parser("route-add", help="add a route")
+    p.add_argument("destination")
+    p.add_argument("--via")
+    p.add_argument("--dev")
+    p = sub.add_parser("route-del", help="delete a route")
+    p.add_argument("destination")
+
+    sub.add_parser("dns", help="list DNS resolvers")
+    p = sub.add_parser("dns-set", help="replace the resolver list")
+    p.add_argument("resolver", nargs="+")
+    p = sub.add_parser("dns-add", help="append a resolver")
+    p.add_argument("resolver")
+    p = sub.add_parser("dns-del", help="remove a resolver")
+    p.add_argument("resolver")
+
+    args = parser.parse_args(argv)
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    if args.command == "interfaces":
+        rows = list_interfaces(args.net_root)
+        if args.name:
+            rows = [r for r in rows if r["name"] == args.name]
+            if not rows:
+                sys.stderr.write("runit-network: unknown interface: %s\n" % args.name)
+                return 1
+        emit(args.json, rows, ["name", "operstate", "address", "mtu"])
+        return 0
+
+    if args.command in ("up", "down"):
+        known = [i["name"] for i in list_interfaces(args.net_root)]
+        if args.name not in known:
+            sys.stderr.write("runit-network: unknown interface: %s\n" % args.name)
+            return 1
+        run_ip(args.ip_command, ["link", "set", args.name, args.command], args.dry_run)
+        return 0
+
+    if args.command == "addresses":
+        rows = parse_addresses(run_ip(args.ip_command, ["-o", "addr", "show"], False))
+        if args.name:
+            rows = [r for r in rows if r["interface"] == args.name]
+        emit(args.json, rows, ["interface", "family", "address"])
+        return 0
+
+    if args.command in ("address-add", "address-del"):
+        action = "add" if args.command == "address-add" else "del"
+        run_ip(args.ip_command, ["addr", action, args.address, "dev", args.name], args.dry_run)
+        return 0
+
+    if args.command == "routes":
+        rows = parse_routes(run_ip(args.ip_command, ["-o", "route", "show"], False))
+        emit(args.json, rows, ["destination", "via", "device"])
+        return 0
+
+    if args.command == "route-add":
+        cmd = ["route", "add", args.destination]
+        if args.via:
+            cmd += ["via", args.via]
+        if args.dev:
+            cmd += ["dev", args.dev]
+        run_ip(args.ip_command, cmd, args.dry_run)
+        return 0
+
+    if args.command == "route-del":
+        run_ip(args.ip_command, ["route", "del", args.destination], args.dry_run)
+        return 0
+
+    if args.command == "dns":
+        rows = [{"resolver": r} for r in read_resolvers(args.resolv_conf)]
+        emit(args.json, rows, ["resolver"])
+        return 0
+
+    if args.command == "dns-set":
+        write_resolvers(args.resolv_conf, list(args.resolver), args.dry_run)
+        return 0
+
+    if args.command == "dns-add":
+        resolvers = read_resolvers(args.resolv_conf)
+        if args.resolver not in resolvers:
+            resolvers.append(args.resolver)
+        write_resolvers(args.resolv_conf, resolvers, args.dry_run)
+        return 0
+
+    if args.command == "dns-del":
+        resolvers = read_resolvers(args.resolv_conf)
+        if args.resolver not in resolvers:
+            sys.stderr.write("runit-network: unknown resolver: %s\n" % args.resolver)
+            return 1
+        resolvers.remove(args.resolver)
+        write_resolvers(args.resolv_conf, resolvers, args.dry_run)
+        return 0
+
+    parser.print_help()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
