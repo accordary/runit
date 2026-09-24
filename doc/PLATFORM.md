@@ -41,6 +41,12 @@ so existing scripts calling `runit-logs`, `runit-devices`, `runit-network` or
     runit-platform logs list
     runit-platform diag --help
 
+`logs list` reads the runit log root `/var/log/runit`. Before runit has booted
+as init on the target host that directory does not exist and the command exits
+2 with `runit-logs: log root not found: /var/log/runit` — that is the expected
+pre-boot result. Use `runit-platform logs --help` for a demonstration that is
+safe on any host, or create the log root first.
+
 ## 5. Resource profile
 
 * Disk: source tree plus build output, a few MB; bundled model well under 1 MB
