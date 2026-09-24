@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""runit-devices - detect device additions/removals and manage associated services.
+
+Devices are enumerated from a device root (default /sys/class), which contains one
+entry per device. State is persisted as a JSON snapshot so that successive runs can
+report additions and removals. Rules map device name patterns to runit services,
+which are started on addition and stopped on removal via sv(8).
+"""
+import argparse
+import fnmatch
+import json
+import os
+import subprocess
+import sys
+
+DEFAULT_ROOT = "/sys/class"
+DEFAULT_STATE = "/var/lib/runit/devices.json"
+
+
+def scan(root):
+    devices = []
+    for dirpath, dirnames, _ in os.walk(root):
+        rel = os.path.relpath(dirpath, root)
+        if rel == ".":
+            continue
+        devices.append(rel)
+        dirnames.sort()
+    return sorted(devices)
+
+
+def load_state(path):
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    devices = data.get("devices", [])
+    return sorted(str(d) for d in devices)
+
+
+def save_state(path, devices):
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump({"devices": sorted(devices)}, fh, indent=1, sort_keys=True)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+def load_rules(path):
+    if not path:
+        return []
+    rules = []
+    with open(path) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            fields = line.split()
+            if len(fields) < 2:
+                raise ValueError("bad rule: %s" % line)
+            rules.append((fields[0], fields[1]))
+    return rules
+
+
+def services_for(rules, device):
+    return [svc for pattern, svc in rules if fnmatch.fnmatch(device, pattern)]
+
+
+def run_sv(command, service, svdir, dry_run):
+    argv = ["sv", command, os.path.join(svdir, service)]
+    if dry_run:
+        return 0, " ".join(argv)
+    proc = subprocess.run(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    out = proc.stdout.decode("utf-8", "replace").strip()
+    return proc.returncode, out or " ".join(argv)
+
+
+def cmd_list(args):
+    for device in scan(args.root):
+        print(device)
+    return 0
+
+
+def cmd_detect(args):
+    current = scan(args.root)
+    previous = load_state(args.state)
+    added = [d for d in current if d not in previous]
+    removed = [d for d in previous if d not in current]
+    rules = load_rules(args.rules)
+    failures = 0
+    for device in added:
+        print("+ %s" % device)
+        for svc in services_for(rules, device):
+            rc, out = run_sv("up", svc, args.svdir, args.dry_run)
+            print("  up %s: %s" % (svc, out))
+            failures += rc != 0
+    for device in removed:
+        print("- %s" % device)
+        for svc in services_for(rules, device):
+            rc, out = run_sv("down", svc, args.svdir, args.dry_run)
+            print("  down %s: %s" % (svc, out))
+            failures += rc != 0
+    if not added and not removed:
+        print("no device changes")
+    if args.commit:
+        save_state(args.state, current)
+    return 1 if failures else 0
+
+
+def cmd_services(args):
+    rules = load_rules(args.rules)
+    svcs = services_for(rules, args.device)
+    if not svcs:
+        print("no services for %s" % args.device, file=sys.stderr)
+        return 1
+    for svc in svcs:
+        print(svc)
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(prog="runit-devices")
+    parser.add_argument("--root", default=DEFAULT_ROOT)
+    parser.add_argument("--state", default=DEFAULT_STATE)
+    parser.add_argument("--rules")
+    parser.add_argument("--svdir", default="/var/service")
+    parser.add_argument("--dry-run", action="store_true")
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list").set_defaults(func=cmd_list)
+    detect = sub.add_parser("detect")
+    detect.add_argument("--commit", action="store_true")
+    detect.set_defaults(func=cmd_detect)
+    services = sub.add_parser("services")
+    services.add_argument("device")
+    services.set_defaults(func=cmd_services)
+    args = parser.parse_args(argv)
+    if not hasattr(args, "commit"):
+        args.commit = False
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
