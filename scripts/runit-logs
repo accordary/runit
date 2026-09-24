@@ -43,7 +43,7 @@ case "$cmd" in
   tail)
     need_root
     svc=$1; n=${2:-20}
-    targets "$svc" | while read -r d; do
+    tgts=$(targets "$svc") || exit 1; for d in $tgts; do
       echo "==> $(basename "$d") <=="
       [ -f "$d/current" ] && tail -n "$n" "$d/current"
     done ;;
