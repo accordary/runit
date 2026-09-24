@@ -1,5 +1,8 @@
 # runit platform - installation, usage and behavior
 
+We, the Plumbers, record here the committee's agreed description of the integrated
+platform. Every command and path below is one the working group has run and checked.
+
 An integrated Linux init/service platform: core runit supervision plus four
 capabilities reached through one entry point, `scripts/runit-platform`.
 

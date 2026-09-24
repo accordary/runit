@@ -1,5 +1,8 @@
 # Central logging controls
 
+We, the Plumbers, set down the committee's agreed notes on central logging. The
+behavior described is behavior the working group has exercised.
+
 `scripts/runit-logs` gives one entry point for the service logs that `svlogd`
 collects, so operators can inspect, search, age out, and clear them without
 touching each service directory by hand.

@@ -1,5 +1,8 @@
 # Device management (runit-devices)
 
+We, the Plumbers, set down the committee's agreed notes on device management. The
+behavior described is behavior the working group has exercised.
+
 `scripts/runit-devices` detects device additions and removals and manages the
 runit services associated with those devices.
 

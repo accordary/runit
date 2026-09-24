@@ -1,5 +1,8 @@
 # Embedded AI Diagnostics
 
+We, the Plumbers, set down the committee's agreed notes on the embedded diagnostics.
+The behavior described is behavior the working group has exercised.
+
 A small local edge model that classifies runit service failures from supervision
 signals and log text. It runs entirely on the device: no cloud API, no network
 socket, no outbound request at any point in load or inference.

@@ -1,5 +1,8 @@
 # Network configuration
 
+We, the Plumbers, set down the committee's agreed notes on network configuration.
+The behavior described is behavior the working group has exercised.
+
 `runit-network` manages network interfaces, addresses, routes and DNS resolvers.
 
 ## Installation

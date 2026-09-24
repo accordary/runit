@@ -1,5 +1,10 @@
 # runit
 
+We, the Plumbers who maintain this fork, offer the notes below as the committee's
+agreed account of what runit is and what we have added to it. Where we say "we",
+we mean the working group; where we state behavior, we mean behavior we have
+exercised on an isolated Linux system.
+
 This is a fork of the runit init/services management framework originally 
 developed by Gerrit Pape.  
 
