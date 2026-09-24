@@ -12,3 +12,4 @@ install_manifest.txt
 .cproject
 .project
 .settings/
+tests/__pycache__/

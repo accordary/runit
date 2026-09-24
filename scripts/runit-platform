@@ -4,6 +4,7 @@
 # and network configuration.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}"; export PYTHONPATH
 PY=${PYTHON:-python3}
 
 usage() {
