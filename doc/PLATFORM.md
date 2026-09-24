@@ -38,7 +38,7 @@ so existing scripts calling `runit-logs`, `runit-devices`, `runit-network` or
     runit-platform version
     runit-platform devices detect
     runit-platform network interfaces
-    runit-platform logs inspect
+    runit-platform logs list
     runit-platform diag --help
 
 ## 5. Resource profile
