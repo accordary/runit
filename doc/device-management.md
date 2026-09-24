@@ -54,3 +54,19 @@ Defaults: `--root /sys/class`, `--state /var/lib/runit/devices.json`,
   an empty device set, so the first run reports every device as an addition.
 * Exit status: 0 on success, 1 if any `sv` invocation fails or if `services`
   finds no matching rule (message on stderr).
+
+## Bootstrap (first run in a fresh system)
+
+No pre-existing snapshot is required. Create the state directory and install a
+rules file, then run once to record the current devices:
+
+    install -d /var/lib/runit
+    install -m 0644 scripts/etc/devices.rules /etc/runit/devices.rules
+    runit-devices --dry-run detect --commit    # review what would be started
+    runit-devices detect --commit              # record snapshot, act for real
+
+A missing snapshot is not an error: the first run reports every present device
+as an addition, which is why the `--dry-run` pass above is recommended first.
+The rules file is plain text (`GLOB SERVICE` per line), not JSON. Live service
+control additionally needs `sv` on PATH and a running runit supervision tree;
+without one, use `--dry-run`, which prints the `sv` commands instead.

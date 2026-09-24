@@ -1,0 +1,4 @@
+# Default runit-devices rules: DEVICE-GLOB  SERVICE
+# Installed to /etc/runit/devices.rules; edit for your services.
+net/*       netmon
+block/sd*   disk-monitor
