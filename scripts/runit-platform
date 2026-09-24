@@ -1,0 +1,47 @@
+#!/bin/sh
+# runit-platform - single entry point integrating the four runit platform
+# capabilities: AI service diagnostics, central logging, device management,
+# and network configuration.
+set -e
+here=$(cd "$(dirname "$0")" && pwd)
+PY=${PYTHON:-python3}
+
+usage() {
+	cat <<'USAGE'
+usage: runit-platform <capability> [args...]
+
+capabilities:
+  diag      embedded AI service-failure diagnostics (bundled local model)
+  logs      central logging: inspect/search/retain/clear
+  devices   device detection and rule-driven service control
+  network   interfaces/addresses/routes/DNS configuration
+  version   print platform component versions
+  doctor    check that every capability is present and runnable
+USAGE
+}
+
+cap=${1:-}
+[ -n "$cap" ] || { usage; exit 2; }
+shift || true
+
+case "$cap" in
+	-h|--help|help) usage; exit 0 ;;
+	diag)    exec "$PY" -m edge_diag.cli "$@" ;;
+	logs)    exec "$here/runit-logs" "$@" ;;
+	devices) exec "$here/runit-devices" "$@" ;;
+	network) exec "$here/runit-network" "$@" ;;
+	version)
+		echo "runit-platform $(sed -n 's/^\([0-9][0-9.]*\).*/\1/p' "$here/../CHANGES" | head -n1)"
+		echo "model: $("$PY" -c 'import json,sys;m=json.load(open(sys.argv[1]));print(m.get("name","edge-diag"),m.get("version",""))' "$here/edge_diag/model.json")"
+		exit 0 ;;
+	doctor)
+		rc=0
+		for c in runit-logs runit-devices runit-network; do
+			if [ -x "$here/$c" ]; then echo "ok   $c"; else echo "FAIL $c missing or not executable"; rc=1; fi
+		done
+		if "$PY" -c 'import edge_diag' 2>/dev/null; then echo "ok   edge_diag"; else echo "FAIL edge_diag not importable"; rc=1; fi
+		if [ -f "$here/edge_diag/model.json" ]; then echo "ok   bundled model"; else echo "FAIL bundled model missing"; rc=1; fi
+		if [ -f "$here/etc/devices.rules" ]; then echo "ok   devices.rules"; else echo "FAIL devices.rules missing"; rc=1; fi
+		exit $rc ;;
+	*) echo "runit-platform: unknown capability: $cap" >&2; usage >&2; exit 2 ;;
+esac

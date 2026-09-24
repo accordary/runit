@@ -26,3 +26,17 @@ sysv init structure that has gone before, is in keeping with the UNIX/*BSD/Linux
 of doing only init/services management, leaving _*other*_ programs/schemes to handle udev, 
 syslog, etc.
 
+## Integrated platform
+
+Beyond core init/service supervision this fork ships four integrated capabilities
+behind a single entry point, `scripts/runit-platform`:
+
+* `runit-platform diag` - embedded AI service-failure diagnostics (bundled local model, offline)
+* `runit-platform logs` - central logging: inspect/search/retain/clear
+* `runit-platform devices` - device detection and rule-driven service control
+* `runit-platform network` - interfaces, addresses, routes and DNS configuration
+
+Run `runit-platform doctor` after installation to verify all four are present.
+Installation, usage, demonstration, resource and behavior documentation is in
+[doc/PLATFORM.md](doc/PLATFORM.md). Licensing is unchanged (`COPYING.md`); the
+bundled model's redistribution terms are in [NOTICES.md](NOTICES.md).
