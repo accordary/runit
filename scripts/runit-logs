@@ -1,0 +1,78 @@
+#!/bin/sh
+# runit-logs - central collection and control of runit service logs.
+#
+# Services logged by svlogd write to a log directory tree (default
+# /var/log/runit, override with RUNIT_LOG_ROOT or -r). Each service has its
+# own subdirectory containing svlogd's "current" file and rotated files.
+#
+# Usage: runit-logs [-r ROOT] COMMAND [ARGS]
+#   list                      list collected services and their log sizes
+#   tail [SERVICE] [N]        show last N lines (default 20); all services if
+#                             SERVICE is omitted or "all"
+#   search PATTERN [SERVICE]  grep -E PATTERN across collected logs
+#   retain DAYS [SERVICE]     delete rotated log files older than DAYS
+#   clear [SERVICE]           truncate current and remove rotated logs
+#   help                      this text
+# Exit status: 0 success, 1 usage error, 2 missing/unreadable log root.
+
+ROOT=${RUNIT_LOG_ROOT:-/var/log/runit}
+[ "$1" = "-r" ] && { ROOT=$2; shift 2; }
+cmd=${1:-help}; shift 2>/dev/null || true
+
+usage() { sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; }
+need_root() {
+  [ -d "$ROOT" ] || { echo "runit-logs: log root not found: $ROOT" >&2; exit 2; }
+}
+services() { find "$ROOT" -mindepth 1 -maxdepth 1 -type d | sort; }
+# files for a service arg: "" or "all" means every service
+targets() {
+  if [ -z "$1" ] || [ "$1" = all ]; then services
+  elif [ -d "$ROOT/$1" ]; then echo "$ROOT/$1"
+  else echo "runit-logs: no such service: $1" >&2; exit 1; fi
+}
+
+case "$cmd" in
+  list)
+    need_root
+    printf '%-24s %10s %8s\n' SERVICE BYTES FILES
+    services | while read -r d; do
+      b=$(cat "$d"/current "$d"/@* 2>/dev/null | wc -c)
+      n=$(find "$d" -type f | wc -l)
+      printf '%-24s %10s %8s\n' "$(basename "$d")" "$b" "$n"
+    done ;;
+  tail)
+    need_root
+    svc=$1; n=${2:-20}
+    targets "$svc" | while read -r d; do
+      echo "==> $(basename "$d") <=="
+      [ -f "$d/current" ] && tail -n "$n" "$d/current"
+    done ;;
+  search)
+    need_root
+    pat=$1; [ -n "$pat" ] || { echo "runit-logs: search needs a pattern" >&2; exit 1; }
+    rc=1
+    for d in $(targets "$2"); do
+      for f in "$d"/current "$d"/@*; do
+        [ -f "$f" ] || continue
+        out=$(grep -En "$pat" "$f") || continue
+        echo "$out" | sed "s|^|$(basename "$d"):$(basename "$f"):|"
+        rc=0
+      done
+    done
+    exit $rc ;;
+  retain)
+    need_root
+    days=$1; [ -n "$days" ] || { echo "runit-logs: retain needs DAYS" >&2; exit 1; }
+    for d in $(targets "$2"); do
+      find "$d" -type f -name '@*' -mtime +"$days" -print -delete
+    done ;;
+  clear)
+    need_root
+    for d in $(targets "$1"); do
+      [ -f "$d/current" ] && : > "$d/current"
+      find "$d" -type f -name '@*' -delete
+      echo "cleared $(basename "$d")"
+    done ;;
+  help|-h|--help) usage ;;
+  *) echo "runit-logs: unknown command: $cmd" >&2; usage >&2; exit 1 ;;
+esac
